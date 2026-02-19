@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+Cargo.lock.bak
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Generated reports
+/reports/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
