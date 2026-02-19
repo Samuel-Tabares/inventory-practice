@@ -1,0 +1,21 @@
+# Rust build artifacts — largest savings, avoids sending ~500 MB to daemon
+target/
+
+# Git
+.git/
+.gitignore
+
+# Local env / secrets — injected via docker-compose environment instead
+.env
+.env.local
+
+# Reports (generated at runtime inside the container)
+reports/
+
+# Docs and scripts not needed inside the image
+README.md
+scripts/
+
+# IDE
+.idea/
+.vscode/
