@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventory Service</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── Toast notifications ───────────────────────────────────────── -->
+<div id="toasts"></div>
+
+<!-- ── Modal backdrop ───────────────────────────────────────────── -->
+<div id="modal-backdrop" class="hidden"></div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  LAYOUT                                                        -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="layout">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────── -->
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">⚙</span>
+      <span class="logo-text">Inventory</span>
+    </div>
+
+    <ul class="nav-list">
+      <li><a class="nav-link" data-page="dashboard"   href="#">📊 Dashboard</a></li>
+      <li><a class="nav-link" data-page="products"    href="#">📦 Products</a></li>
+      <li><a class="nav-link" data-page="devolutions" href="#">↩ Devolutions</a></li>
+      <li><a class="nav-link" data-page="seed"        href="#">🌱 Seed Data</a></li>
+      <li class="nav-divider"></li>
+      <li><a class="nav-link" data-page="benchmark"   href="#">⚡ Benchmark</a></li>
+      <li><a class="nav-link" data-page="sets"        href="#">🔍 Set Inspector</a></li>
+      <li><a class="nav-link" data-page="stress"      href="#">💪 Stress Test</a></li>
+      <li><a class="nav-link" data-page="metrics"     href="#">📈 Metrics</a></li>
+    </ul>
+
+    <div class="sidebar-health">
+      <span id="health-dot" class="dot dot-pending"></span>
+      <span id="health-text">Connecting…</span>
+    </div>
+  </nav>
+
+  <!-- ── Main content ─────────────────────────────────────────── -->
+  <main id="main">
+
+    <!-- ─── Dashboard ──────────────────────────────────────── -->
+    <section id="page-dashboard" class="page hidden">
+      <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="page-sub">Overview of your inventory service</p>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">HashSet Size</div>
+          <div class="stat-value" id="dash-hash-size">—</div>
+          <div class="stat-sub">Unordered · O(1)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">IndexSet Size</div>
+          <div class="stat-value" id="dash-index-size">—</div>
+          <div class="stat-sub">Insertion-ordered · O(1)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">BTreeSet Size</div>
+          <div class="stat-value" id="dash-btree-size">—</div>
+          <div class="stat-sub">Sorted by name · O(log n)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Service</div>
+          <div class="stat-value" id="dash-health-val">—</div>
+          <div class="stat-sub" id="dash-health-sub">checking…</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Last Benchmark</div>
+        <div id="dash-last-bench" class="dash-bench-area text-muted">No benchmark run yet</div>
+      </div>
+
+      <div class="quick-actions">
+        <button class="btn btn-primary" onclick="navigate('seed')">🌱 Seed Data</button>
+        <button class="btn btn-primary" onclick="navigate('benchmark')">⚡ Run Benchmark</button>
+        <button class="btn btn-ghost" onclick="navigate('sets')">🔍 Inspect Sets</button>
+        <button class="btn btn-ghost" onclick="navigate('products')">📦 Browse Products</button>
+      </div>
+    </section>
+
+    <!-- ─── Products ───────────────────────────────────────── -->
+    <section id="page-products" class="page hidden">
+      <div class="page-header">
+        <h1>Products</h1>
+        <button class="btn btn-primary" onclick="openCreateProduct()">+ New Product</button>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <select id="filter-category">
+          <option value="">All categories</option>
+          <option>Electronics</option><option>Clothing</option>
+          <option>Food &amp; Beverage</option><option>Home &amp; Garden</option>
+          <option>Toys &amp; Games</option><option>Sports &amp; Outdoors</option>
+          <option>Books</option><option>Automotive</option>
+          <option>Health &amp; Beauty</option><option>Office Supplies</option>
+          <option>Musical Instruments</option><option>Pet Supplies</option>
+          <option>Jewelry</option><option>Tools &amp; Hardware</option>
+          <option>Baby Products</option>
+        </select>
+        <input id="filter-min-price" type="number" placeholder="Min price ($)" min="0" />
+        <input id="filter-max-price" type="number" placeholder="Max price ($)" min="0" />
+        <select id="filter-limit">
+          <option value="25">25 / page</option>
+          <option value="50" selected>50 / page</option>
+          <option value="100">100 / page</option>
+          <option value="500">500 / page</option>
+        </select>
+        <button class="btn btn-ghost" onclick="loadProducts()">↺ Refresh</button>
+        <span id="products-count" class="text-muted"></span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>Category</th>
+              <th>Price</th><th>Qty</th><th>Created</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="products-table-body">
+            <tr><td colspan="7" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button class="btn btn-ghost btn-sm" id="products-prev" onclick="changePage(-1)">← Prev</button>
+        <span id="products-page-info" class="text-muted"></span>
+        <button class="btn btn-ghost btn-sm" id="products-next" onclick="changePage(1)">Next →</button>
+      </div>
+    </section>
+
+    <!-- ─── Devolutions ─────────────────────────────────────── -->
+    <section id="page-devolutions" class="page hidden">
+      <div class="page-header">
+        <h1>Devolutions</h1>
+        <span id="dev-count" class="text-muted"></span>
+      </div>
+
+      <div class="two-col">
+        <!-- Table -->
+        <div class="card flex-1">
+          <div class="card-header">Return History</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th><th>Product</th><th>Category</th>
+                  <th>Qty</th><th>Reason</th><th>Returned</th>
+                </tr>
+              </thead>
+              <tbody id="dev-table-body">
+                <tr><td colspan="6" class="empty">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Create form -->
+        <div class="card" style="min-width:280px; max-width:340px">
+          <div class="card-header">Record a Return</div>
+          <form id="dev-form" class="form-stack">
+            <label>
+              Product
+              <select id="dev-product-id" required>
+                <option value="">— select product —</option>
+              </select>
+            </label>
+            <label>
+              Quantity
+              <input id="dev-quantity" type="number" min="1" required />
+            </label>
+            <label>
+              Reason
+              <input id="dev-reason" type="text" required placeholder="e.g. Defective on arrival" list="dev-reason-list"/>
+              <datalist id="dev-reason-list">
+                <option>Defective on arrival</option>
+                <option>Wrong item received</option>
+                <option>Changed mind</option>
+                <option>Product not as described</option>
+                <option>Damaged during shipping</option>
+                <option>Missing parts</option>
+                <option>Quality below expectations</option>
+                <option>Found better price elsewhere</option>
+                <option>No longer needed</option>
+                <option>Gift recipient already has it</option>
+              </datalist>
+            </label>
+            <label>
+              Returned at <span class="text-muted">(optional)</span>
+              <input id="dev-returned-at" type="datetime-local" />
+            </label>
+            <button type="submit" class="btn btn-primary">Record Return</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Seed Data ───────────────────────────────────────── -->
+    <section id="page-seed" class="page hidden">
+      <div class="page-header">
+        <h1>Seed Data</h1>
+        <p class="page-sub">Bulk-insert random products into the database</p>
+      </div>
+
+      <div class="two-col" style="align-items:flex-start">
+        <div class="card" style="min-width:320px; max-width:420px">
+          <div class="card-header">Configure Seed</div>
+          <div class="form-stack">
+            <label>
+              Product count: <strong id="seed-count-display">1,000</strong>
+              <input id="seed-count-input" type="range" min="100" max="50000" step="100" value="1000" />
+            </label>
+            <div class="quick-btns">
+              <button class="btn btn-ghost btn-sm" onclick="setSeedCount(100)">100</button>
+              <button class="btn btn-ghost btn-sm" onclick="setSeedCount(1000)">1 k</button>
+              <button class="btn btn-ghost btn-sm" onclick="setSeedCount(5000)">5 k</button>
+              <button class="btn btn-ghost btn-sm" onclick="setSeedCount(10000)">10 k</button>
+              <button class="btn btn-ghost btn-sm" onclick="setSeedCount(25000)">25 k</button>
+              <button class="btn btn-ghost btn-sm" onclick="setSeedCount(50000)">50 k</button>
+            </div>
+            <button id="seed-btn" class="btn btn-primary" onclick="runSeed()">🌱 Seed</button>
+          </div>
+        </div>
+
+        <div id="seed-result" class="flex-1"></div>
+      </div>
+    </section>
+
+    <!-- ─── Benchmark ───────────────────────────────────────── -->
+    <section id="page-benchmark" class="page hidden">
+      <div class="page-header">
+        <h1>Set Benchmark</h1>
+        <div class="header-actions">
+          <button id="bench-run-btn" class="btn btn-primary" onclick="runBenchmark()">▶ Run Benchmark</button>
+          <button class="btn btn-ghost" onclick="loadBenchmarkReport()">↺ Reload Last</button>
+        </div>
+      </div>
+      <p class="page-sub" style="margin-bottom:1.5rem">
+        Compares <strong>HashSet</strong>, <strong>IndexSet</strong>, and <strong>BTreeSet</strong>
+        across insert, lookup, iterate, and remove on all products in the DB.
+      </p>
+      <div id="bench-result">
+        <div class="empty-state">Run a benchmark or load the last report.</div>
+      </div>
+    </section>
+
+    <!-- ─── Set Inspector ───────────────────────────────────── -->
+    <section id="page-sets" class="page hidden">
+      <div class="page-header">
+        <h1>Set Inspector</h1>
+        <button class="btn btn-ghost" onclick="loadSetStatus()">↺ Refresh</button>
+      </div>
+      <p class="page-sub" style="margin-bottom:1.5rem">
+        Live snapshot of the first 5 items from each in-memory set — notice the different iteration orders.
+      </p>
+      <div id="sets-content" class="set-inspector-grid">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </section>
+
+    <!-- ─── Stress Test ─────────────────────────────────────── -->
+    <section id="page-stress" class="page hidden">
+      <div class="page-header">
+        <h1>Stress Test</h1>
+        <p class="page-sub">Concurrent load simulation: 50% reads · 25% creates · 15% updates · 10% deletes</p>
+      </div>
+
+      <div class="two-col" style="align-items:flex-start; gap:2rem">
+        <div class="card" style="min-width:280px; max-width:360px">
+          <div class="card-header">Configure</div>
+          <form id="stress-form" class="form-stack">
+            <label>
+              Concurrency (1–200)
+              <input id="stress-concurrency" type="number" value="20" min="1" max="200" required />
+            </label>
+            <label>
+              Ops per user (1–1000)
+              <input id="stress-ops" type="number" value="50" min="1" max="1000" required />
+            </label>
+            <label>
+              Pre-seed count <span class="text-muted">(optional)</span>
+              <input id="stress-seed" type="number" placeholder="0 = use existing" min="0" max="10000" />
+            </label>
+            <div class="form-hint text-muted">
+              Deletes only target products created during this run — seeded data is safe.
+            </div>
+            <button id="stress-btn" type="submit" class="btn btn-primary">▶ Run Stress Test</button>
+          </form>
+        </div>
+
+        <div id="stress-result" class="flex-1">
+          <div class="empty-state">Configure and run a stress test.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Metrics ─────────────────────────────────────────── -->
+    <section id="page-metrics" class="page hidden">
+      <div class="page-header">
+        <h1>Metrics</h1>
+        <div class="header-actions">
+          <span id="metrics-entry-count" class="text-muted"></span>
+          <button class="btn btn-ghost btn-sm" onclick="downloadCSV()">⬇ CSV</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadMetrics()">↺ Refresh</button>
+        </div>
+      </div>
+      <p class="page-sub" style="margin-bottom:1.5rem">
+        Aggregated timing metrics accumulated across all benchmark runs.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Operation</th><th>Set Type</th><th>Samples</th>
+              <th>Avg (µs)</th><th>P50 (µs)</th><th>P95 (µs)</th><th>P99 (µs)</th><th>Avg (ms)</th>
+            </tr>
+          </thead>
+          <tbody id="metrics-table-body">
+            <tr><td colspan="8" class="empty">Run a benchmark first</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <details class="ascii-details" style="margin-top:1.5rem">
+        <summary>Raw ASCII Table</summary>
+        <pre id="metrics-ascii" class="ascii"></pre>
+      </details>
+    </section>
+
+  </main><!-- /main -->
+</div><!-- /layout -->
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  MODALS                                                        -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+
+<!-- Create / Edit Product -->
+<div id="modal-product" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-product-title">New Product</h2>
+      <button class="modal-close" onclick="closeModal('modal-product')">✕</button>
+    </div>
+    <form id="product-form" class="form-stack">
+      <input type="hidden" id="product-form-id" />
+      <label>Name <input id="product-name" type="text" required /></label>
+      <label>
+        Category
+        <select id="product-category" required>
+          <option value="">— select —</option>
+          <option>Electronics</option><option>Clothing</option>
+          <option>Food &amp; Beverage</option><option>Home &amp; Garden</option>
+          <option>Toys &amp; Games</option><option>Sports &amp; Outdoors</option>
+          <option>Books</option><option>Automotive</option>
+          <option>Health &amp; Beauty</option><option>Office Supplies</option>
+          <option>Musical Instruments</option><option>Pet Supplies</option>
+          <option>Jewelry</option><option>Tools &amp; Hardware</option>
+          <option>Baby Products</option>
+        </select>
+      </label>
+      <div class="form-row">
+        <label>Price (cents) <input id="product-price" type="number" min="0" required /></label>
+        <label>Quantity <input id="product-quantity" type="number" min="0" required /></label>
+      </div>
+      <label>Description <textarea id="product-desc" rows="2" placeholder="Optional"></textarea></label>
+      <button id="product-form-submit" type="submit" class="btn btn-primary">Create</button>
+    </form>
+  </div>
+</div>
+
+<!-- Product Detail (with set lookup times) -->
+<div id="modal-product-detail" class="modal hidden">
+  <div class="modal-box modal-wide">
+    <div class="modal-header">
+      <h2>Product Detail</h2>
+      <button class="modal-close" onclick="closeModal('modal-product-detail')">✕</button>
+    </div>
+    <div id="product-detail-content"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
