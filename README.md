@@ -123,6 +123,11 @@ The backend spawns 20 concurrent tasks, each performing 100 operations (50% read
 ### 7. Export metrics
 Go to **📈 Metrics** → click **⬇ CSV** to download all timing data accumulated across every benchmark run.
 
+### 8. Reset everything (optional)
+Go to **🌱 Seed Data** → scroll to **Danger Zone** → click **🗑 Clear All Data**.
+
+This permanently deletes all products and devolutions from the database, clears all three in-memory sets (including the last benchmark report), and wipes the accumulated metrics — returning the service to a blank state without a server restart.
+
 ---
 
 ## What the Backend Does
@@ -150,7 +155,7 @@ A single-page dashboard with eight sections, all talking to the backend via `fet
 | 📊 Dashboard | Health status, live set sizes, last benchmark winners |
 | 📦 Products | Filter, paginate, create, edit, delete — view per-set lookup times per product |
 | ↩ Devolutions | Return history + create returns from a product dropdown |
-| 🌱 Seed Data | Slider (100–50 k) + quick buttons, shows timing results |
+| 🌱 Seed Data | Slider (100–50 k) + quick buttons, shows timing results · **Danger Zone** to wipe all data |
 | ⚡ Benchmark | Run or reload — bar charts, winner badges, iteration order samples |
 | 🔍 Set Inspector | Live first-5-items view proving each set's iteration order |
 | 💪 Stress Test | Concurrent load with latency p95/p99 and op breakdown |

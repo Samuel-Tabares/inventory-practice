@@ -238,6 +238,18 @@
 
         <div id="seed-result" class="flex-1"></div>
       </div>
+
+      <div class="card" style="margin-top:2rem; border-color: var(--red);">
+        <div class="card-header" style="color: var(--red);">Danger Zone</div>
+        <p class="text-muted" style="margin-bottom:1rem">
+          Permanently deletes <strong>all products</strong> and their devolutions from the database,
+          and clears all in-memory sets and accumulated metrics. This cannot be undone.
+        </p>
+        <button id="clear-all-btn" class="btn btn-danger" onclick="clearAll()">
+          🗑 Clear All Data
+        </button>
+        <div id="clear-result" style="margin-top:1rem"></div>
+      </div>
     </section>
 
     <!-- ─── Benchmark ───────────────────────────────────────── -->

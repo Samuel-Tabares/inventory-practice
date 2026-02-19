@@ -1,5 +1,11 @@
 use std::collections::{BTreeSet, HashSet};
+use std::hint::black_box;
 use std::time::{Duration, Instant};
+
+/// How many evenly-spread elements are used for every lookup measurement.
+/// Averaging 1 000 samples eliminates single-call noise and exercises
+/// different positions in each set's internal structure.
+const LOOKUP_SAMPLES: usize = 1_000;
 
 use chrono::Utc;
 use indexmap::IndexSet;
@@ -148,6 +154,14 @@ impl SetManager {
         self.btree_set.retain(|p| p.id != id);
     }
 
+    /// Clear all three sets and the cached benchmark report.
+    pub fn reset(&mut self) {
+        self.hash_set.clear();
+        self.index_set.clear();
+        self.btree_set.clear();
+        self.last_report = None;
+    }
+
     pub fn sizes(&self) -> (usize, usize, usize) {
         (
             self.hash_set.len(),
@@ -195,26 +209,52 @@ impl SetManager {
 
 // ── Individual set benchmarks ─────────────────────────────────────────────────
 
+/// Builds evenly-spread lookup targets (LOOKUP_SAMPLES indices across the slice).
+fn lookup_targets(products: &[Product]) -> Vec<&Product> {
+    if products.is_empty() {
+        return vec![];
+    }
+    let step = (products.len() / LOOKUP_SAMPLES).max(1);
+    products.iter().step_by(step).take(LOOKUP_SAMPLES).collect()
+}
+
+/// Pre-generates LOOKUP_SAMPLES fake products for miss benchmarks.
+fn miss_targets() -> Vec<Product> {
+    (0..LOOKUP_SAMPLES).map(|_| make_fake_product()).collect()
+}
+
 fn benchmark_hash_set(products: &[Product]) -> SetBenchmarkResult {
+    // Warmup: prime the allocator so this benchmark doesn't pay OS page-fault
+    // costs that the second/third benchmark would otherwise avoid for free.
+    {
+        let mut w: HashSet<Product> = HashSet::with_capacity(1_000);
+        for p in products.iter().take(1_000) { w.insert(p.clone()); }
+    }
+
     let mut set: HashSet<Product> = HashSet::with_capacity(products.len());
 
     // Insert all
     let (_, insert_dur) = timed(|| {
-        for p in products {
-            set.insert(p.clone());
-        }
+        for p in products { set.insert(p.clone()); }
     });
 
-    // Lookup hit (first product)
-    let lookup_hit_dur = if let Some(first) = products.first() {
-        timed(|| set.contains(first)).1
-    } else {
+    // Lookup hit — average of LOOKUP_SAMPLES evenly-spread elements
+    let hits = lookup_targets(products);
+    let (_, lookup_hit_total) = timed(|| {
+        for p in hits.iter().copied() { black_box(set.contains(black_box(p))); }
+    });
+    let lookup_hit_dur = if hits.is_empty() {
         Duration::ZERO
+    } else {
+        lookup_hit_total / hits.len() as u32
     };
 
-    // Lookup miss (fake UUID)
-    let fake = make_fake_product();
-    let lookup_miss_dur = timed(|| set.contains(&fake)).1;
+    // Lookup miss — average of LOOKUP_SAMPLES fresh UUIDs not in the set
+    let misses = miss_targets();
+    let (_, lookup_miss_total) = timed(|| {
+        for f in misses.iter() { black_box(set.contains(black_box(f))); }
+    });
+    let lookup_miss_dur = lookup_miss_total / LOOKUP_SAMPLES as u32;
 
     // Iterate all — time the full traversal, then slice 10 for the sample
     let (all_names, iterate_dur) = timed(|| {
@@ -225,14 +265,12 @@ fn benchmark_hash_set(products: &[Product]) -> SetBenchmarkResult {
     // Remove half
     let half: Vec<Product> = set.iter().take(products.len() / 2).cloned().collect();
     let (_, remove_dur) = timed(|| {
-        for p in &half {
-            set.remove(p);
-        }
+        for p in &half { set.remove(p); }
     });
 
     SetBenchmarkResult {
         set_type: "HashSet".to_string(),
-        description: "Unordered. O(1) average insert/lookup/remove. No iteration order guarantee.".to_string(),
+        description: "Unordered. O(1) avg insert/lookup/remove. Lookup = avg of 1 000 samples.".to_string(),
         product_count: products.len(),
         insert_all: insert_dur.into(),
         lookup_hit: lookup_hit_dur.into(),
@@ -249,22 +287,35 @@ fn benchmark_hash_set(products: &[Product]) -> SetBenchmarkResult {
 /// a `LinkedHashSet`: it stores elements in a flat array (preserving insertion
 /// order) while maintaining a hash-map index for O(1) average lookups.
 fn benchmark_index_set(products: &[Product]) -> SetBenchmarkResult {
+    // Warmup
+    {
+        let mut w: IndexSet<Product> = IndexSet::with_capacity(1_000);
+        for p in products.iter().take(1_000) { w.insert(p.clone()); }
+    }
+
     let mut set: IndexSet<Product> = IndexSet::with_capacity(products.len());
 
     let (_, insert_dur) = timed(|| {
-        for p in products {
-            set.insert(p.clone());
-        }
+        for p in products { set.insert(p.clone()); }
     });
 
-    let lookup_hit_dur = if let Some(first) = products.first() {
-        timed(|| set.contains(first)).1
-    } else {
+    // Lookup hit — average of LOOKUP_SAMPLES evenly-spread elements
+    let hits = lookup_targets(products);
+    let (_, lookup_hit_total) = timed(|| {
+        for p in hits.iter().copied() { black_box(set.contains(black_box(p))); }
+    });
+    let lookup_hit_dur = if hits.is_empty() {
         Duration::ZERO
+    } else {
+        lookup_hit_total / hits.len() as u32
     };
 
-    let fake = make_fake_product();
-    let lookup_miss_dur = timed(|| set.contains(&fake)).1;
+    // Lookup miss — average of LOOKUP_SAMPLES fresh UUIDs not in the set
+    let misses = miss_targets();
+    let (_, lookup_miss_total) = timed(|| {
+        for f in misses.iter() { black_box(set.contains(black_box(f))); }
+    });
+    let lookup_miss_dur = lookup_miss_total / LOOKUP_SAMPLES as u32;
 
     let (all_names, iterate_dur) = timed(|| {
         set.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
@@ -273,14 +324,12 @@ fn benchmark_index_set(products: &[Product]) -> SetBenchmarkResult {
 
     let half: Vec<Product> = set.iter().take(products.len() / 2).cloned().collect();
     let (_, remove_dur) = timed(|| {
-        for p in &half {
-            set.swap_remove(p);
-        }
+        for p in &half { set.swap_remove(p); }
     });
 
     SetBenchmarkResult {
         set_type: "IndexSet (LinkedHashSet)".to_string(),
-        description: "Insertion-ordered. O(1) average insert/lookup. Preserves insertion order. Uses indexmap crate.".to_string(),
+        description: "Insertion-ordered. O(1) avg insert/lookup. Lookup = avg of 1 000 samples.".to_string(),
         product_count: products.len(),
         insert_all: insert_dur.into(),
         lookup_hit: lookup_hit_dur.into(),
@@ -294,22 +343,35 @@ fn benchmark_index_set(products: &[Product]) -> SetBenchmarkResult {
 }
 
 fn benchmark_btree_set(products: &[Product]) -> SetBenchmarkResult {
+    // Warmup
+    {
+        let mut w: BTreeSet<Product> = BTreeSet::new();
+        for p in products.iter().take(1_000) { w.insert(p.clone()); }
+    }
+
     let mut set: BTreeSet<Product> = BTreeSet::new();
 
     let (_, insert_dur) = timed(|| {
-        for p in products {
-            set.insert(p.clone());
-        }
+        for p in products { set.insert(p.clone()); }
     });
 
-    let lookup_hit_dur = if let Some(first) = products.first() {
-        timed(|| set.contains(first)).1
-    } else {
+    // Lookup hit — average of LOOKUP_SAMPLES evenly-spread elements
+    let hits = lookup_targets(products);
+    let (_, lookup_hit_total) = timed(|| {
+        for p in hits.iter().copied() { black_box(set.contains(black_box(p))); }
+    });
+    let lookup_hit_dur = if hits.is_empty() {
         Duration::ZERO
+    } else {
+        lookup_hit_total / hits.len() as u32
     };
 
-    let fake = make_fake_product();
-    let lookup_miss_dur = timed(|| set.contains(&fake)).1;
+    // Lookup miss — average of LOOKUP_SAMPLES fresh UUIDs not in the set
+    let misses = miss_targets();
+    let (_, lookup_miss_total) = timed(|| {
+        for f in misses.iter() { black_box(set.contains(black_box(f))); }
+    });
+    let lookup_miss_dur = lookup_miss_total / LOOKUP_SAMPLES as u32;
 
     let (all_names, iterate_dur) = timed(|| {
         set.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
@@ -318,14 +380,12 @@ fn benchmark_btree_set(products: &[Product]) -> SetBenchmarkResult {
 
     let half: Vec<Product> = set.iter().take(products.len() / 2).cloned().collect();
     let (_, remove_dur) = timed(|| {
-        for p in &half {
-            set.remove(p);
-        }
+        for p in &half { set.remove(p); }
     });
 
     SetBenchmarkResult {
         set_type: "BTreeSet".to_string(),
-        description: "Sorted by (name, id). O(log n) insert/lookup/remove. Always alphabetically ordered.".to_string(),
+        description: "Sorted by (name, id). O(log n) insert/lookup/remove. Lookup = avg of 1 000 samples.".to_string(),
         product_count: products.len(),
         insert_all: insert_dur.into(),
         lookup_hit: lookup_hit_dur.into(),

@@ -143,6 +143,7 @@ cargo run --release
 | Method | Path                            | Description                                                        |
 |--------|---------------------------------|--------------------------------------------------------------------|
 | POST   | `/api/seed?count=N`             | Bulk-insert N random products (max 50 000)                         |
+| DELETE | `/api/reset`                    | Delete **all** products + devolutions, clear in-memory sets and metrics |
 | POST   | `/api/benchmark/run`            | Run full set comparison benchmark (results **append** to metrics)  |
 | GET    | `/api/benchmark/report`         | Retrieve last benchmark report + ASCII table                       |
 | GET    | `/api/benchmark/sets/status`    | Show sizes + first-5 items from each set                           |
@@ -166,6 +167,27 @@ cargo run --release
 
 **Operation mix per virtual user:** 50 % reads · 25 % creates · 15 % updates · 10 % deletes.
 Deletes only target products **created during the same stress run** — pre-existing seeded data is never deleted.
+
+---
+
+## Reset (Danger Zone)
+
+`DELETE /api/reset` wipes everything in one atomic sequence:
+
+1. `DELETE FROM products` — rows removed; devolutions cascade automatically (`ON DELETE CASCADE`)
+2. `SetManager::reset()` — all three in-memory sets cleared, last benchmark report wiped
+3. `MetricsStore::clear()` — all accumulated timing history removed
+
+**Response:**
+```json
+{
+  "deleted_products": 250000,
+  "sets_cleared": true,
+  "metrics_cleared": true
+}
+```
+
+This is the only endpoint that modifies metrics. All other endpoints only append to them.
 
 ---
 
@@ -199,6 +221,8 @@ Deletes only target products **created during the same stress run** — pre-exis
      2. Advanced Component #00063
      ...
 ```
+
+> **Benchmark methodology:** Lookup values shown are the **average of 1 000 evenly-spread `contains()` calls** (not a single call), so results are statistically stable across runs. Each benchmark also runs a warm-up pass to normalise allocator state, and `std::hint::black_box` is applied to every lookup to prevent the compiler from eliding them.
 
 ---
 

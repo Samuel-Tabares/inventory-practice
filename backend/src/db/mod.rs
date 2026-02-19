@@ -175,6 +175,15 @@ pub async fn insert_devolution(pool: &PgPool, payload: &CreateDevolution) -> App
     fetch_devolution_by_id(pool, dev.id).await
 }
 
+/// Delete every product (and cascade-delete their devolutions) in one shot.
+/// Returns the number of rows deleted.
+pub async fn delete_all_products(pool: &PgPool) -> AppResult<u64> {
+    let result = sqlx::query("DELETE FROM products")
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 /// Fetch all products without filters (used for seeding sets in benchmarks).
 pub async fn fetch_all_products_unbounded(pool: &PgPool) -> AppResult<Vec<Product>> {
     let products = sqlx::query_as::<_, Product>(

@@ -274,6 +274,32 @@ pub async fn export_json(
     ))
 }
 
+// ── DELETE /api/reset ─────────────────────────────────────────────────────────
+
+pub async fn reset_all(
+    State(state): State<AppState>,
+) -> AppResult<(StatusCode, Json<serde_json::Value>)> {
+    // 1. Wipe DB (devolutions cascade automatically)
+    let rows_deleted = db::delete_all_products(&state.db).await?;
+
+    // 2. Clear in-memory sets + last benchmark report
+    state.sets.write().await.reset();
+
+    // 3. Clear accumulated metrics
+    state.metrics.write().await.clear();
+
+    info!(rows_deleted, "Full reset: DB, sets, and metrics cleared");
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "deleted_products": rows_deleted,
+            "sets_cleared": true,
+            "metrics_cleared": true,
+        })),
+    ))
+}
+
 // ── ASCII table renderer ──────────────────────────────────────────────────────
 
 fn render_benchmark_ascii_table(report: &crate::sets::BenchmarkReport) -> String {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use sqlx::postgres::PgPoolOptions;
@@ -111,8 +111,9 @@ fn build_router(state: AppState) -> Router {
             get(handlers::devolutions::get_devolution),
         )
 
-        // ── Seed ────────────────────────────────────────────────────────────
+        // ── Seed / Reset ─────────────────────────────────────────────────────
         .route("/api/seed", post(handlers::benchmark::seed_data))
+        .route("/api/reset", delete(handlers::benchmark::reset_all))
 
         // ── Benchmark ───────────────────────────────────────────────────────
         .route("/api/benchmark/run", post(handlers::benchmark::run_benchmark))

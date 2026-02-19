@@ -184,6 +184,8 @@ select option { background: var(--surface2); }
   opacity: 0.7;
 }
 .btn-danger-ghost:hover { opacity: 1; background: #f8514915; }
+.btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+.btn-danger:hover:not(:disabled) { background: #da3633; border-color: #da3633; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 
 /* ── Filter bar ─────────────────────────────────────────────────── */

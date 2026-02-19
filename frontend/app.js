@@ -378,6 +378,27 @@ async function runSeed() {
   }
 }
 
+async function clearAll() {
+  if (!confirm('Delete ALL products, devolutions, sets, and metrics? This cannot be undone.')) return;
+  setBusy('clear-all-btn', true);
+  el('clear-result').innerHTML = '';
+  try {
+    const d = await apiFetch('/api/reset', { method: 'DELETE' });
+    el('clear-result').innerHTML = `
+      <div class="result-card success">
+        <div class="result-row"><span>Products deleted</span><strong>${fmtNum(d.deleted_products)}</strong></div>
+        <div class="result-row"><span>Sets cleared</span><strong>HashSet · IndexSet · BTreeSet</strong></div>
+        <div class="result-row"><span>Metrics cleared</span><strong>Yes</strong></div>
+      </div>
+    `;
+    toast('All data cleared', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    setBusy('clear-all-btn', false, '🗑 Clear All Data');
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 // BENCHMARK
 // ════════════════════════════════════════════════════════════════
