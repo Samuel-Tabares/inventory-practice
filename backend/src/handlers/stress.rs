@@ -113,6 +113,10 @@ pub async fn run_stress_test(
     let update_lats: Arc<tokio::sync::Mutex<Vec<f64>>> = Arc::new(tokio::sync::Mutex::new(vec![]));
     let delete_lats: Arc<tokio::sync::Mutex<Vec<f64>>> = Arc::new(tokio::sync::Mutex::new(vec![]));
 
+    // IDs created during this run — deletes only target these to avoid destroying seed data
+    let created_during_run: Arc<tokio::sync::Mutex<Vec<uuid::Uuid>>> =
+        Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
     // Grab a snapshot of product IDs from the DB for reads/updates/deletes
     let existing_products = db::fetch_all_products_unbounded(&state.db).await?;
     let existing_ids: Arc<Vec<uuid::Uuid>> =
@@ -138,6 +142,7 @@ pub async fn run_stress_test(
         let cl = Arc::clone(&create_lats);
         let ul = Arc::clone(&update_lats);
         let dl = Arc::clone(&delete_lats);
+        let created_c = Arc::clone(&created_during_run);
 
         join_set.spawn(async move {
             // StdRng is Send + Sync — safe to use across .await points in spawned tasks
@@ -179,6 +184,7 @@ pub async fn run_stress_test(
                         };
 
                         let prod = db::insert_product(&pool, &payload).await?;
+                        created_c.lock().await.push(prod.id);
 
                         let ins_start = Instant::now();
                         sets.write().await.insert_product(&prod);
@@ -208,13 +214,21 @@ pub async fn run_stress_test(
                             }
                         }
                     } else {
-                        // DELETE (only created-during-test products to preserve data)
-                        // We skip to avoid permanently deleting seeded data.
-                        // Instead we do a no-op "soft" delete via fetch + measure.
-                        if let Some(&id) = ids.choose(&mut rng) {
-                            let start = Instant::now();
-                            let _ = db::fetch_product_by_id(&pool, id).await?;
-                            let _rm_start = start.elapsed();
+                        // DELETE — only products created during this run; skip if none yet
+                        let id_to_delete = {
+                            let mut created = created_c.lock().await;
+                            if created.is_empty() {
+                                None
+                            } else {
+                                let idx = rng.gen_range(0..created.len());
+                                Some(created.swap_remove(idx))
+                            }
+                        };
+                        if let Some(id) = id_to_delete {
+                            db::delete_product(&pool, id).await?;
+                            let rm_start = Instant::now();
+                            sets.write().await.remove_product(id);
+                            set_rm_c.fetch_add(rm_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
                             deletes_c.fetch_add(1, Ordering::Relaxed);
                             dl.lock().await.push(op_start.elapsed().as_secs_f64() * 1000.0);
                         }

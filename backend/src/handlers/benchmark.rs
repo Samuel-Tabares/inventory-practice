@@ -82,10 +82,9 @@ pub async fn run_benchmark(
     let report = state.sets.write().await.run_benchmark(products);
     let bench_elapsed = bench_start.elapsed();
 
-    // Persist to metrics store
+    // Persist to metrics store (appended — history is preserved across runs)
     {
         let mut metrics = state.metrics.write().await;
-        metrics.clear();
         for result in &report.results {
             metrics.record_raw(
                 "insert_all",

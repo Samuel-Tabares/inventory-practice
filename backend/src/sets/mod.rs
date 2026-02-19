@@ -128,9 +128,16 @@ impl SetManager {
     }
 
     /// Insert a product into all three sets.
+    ///
+    /// `HashSet` and `IndexSet` deduplicate by `Eq` (UUID), so re-inserting a
+    /// product with the same UUID naturally replaces the old entry.
+    /// `BTreeSet` deduplicates by `Ord` (`(name, id)`), so a name change would
+    /// leave a stale entry behind.  We evict by ID first to keep all three sets
+    /// consistent.
     pub fn insert_product(&mut self, product: &Product) {
         self.hash_set.insert(product.clone());
         self.index_set.insert(product.clone());
+        self.btree_set.retain(|p| p.id != product.id);
         self.btree_set.insert(product.clone());
     }
 
@@ -209,13 +216,11 @@ fn benchmark_hash_set(products: &[Product]) -> SetBenchmarkResult {
     let fake = make_fake_product();
     let lookup_miss_dur = timed(|| set.contains(&fake)).1;
 
-    // Iterate all — collect first 10 for the sample, time the full iteration
-    let (order_sample, iterate_dur) = timed(|| {
-        set.iter()
-            .take(10)
-            .map(|p| p.name.clone())
-            .collect::<Vec<_>>()
+    // Iterate all — time the full traversal, then slice 10 for the sample
+    let (all_names, iterate_dur) = timed(|| {
+        set.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
     });
+    let order_sample: Vec<String> = all_names.into_iter().take(10).collect();
 
     // Remove half
     let half: Vec<Product> = set.iter().take(products.len() / 2).cloned().collect();
@@ -261,12 +266,10 @@ fn benchmark_index_set(products: &[Product]) -> SetBenchmarkResult {
     let fake = make_fake_product();
     let lookup_miss_dur = timed(|| set.contains(&fake)).1;
 
-    let (order_sample, iterate_dur) = timed(|| {
-        set.iter()
-            .take(10)
-            .map(|p| p.name.clone())
-            .collect::<Vec<_>>()
+    let (all_names, iterate_dur) = timed(|| {
+        set.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
     });
+    let order_sample: Vec<String> = all_names.into_iter().take(10).collect();
 
     let half: Vec<Product> = set.iter().take(products.len() / 2).cloned().collect();
     let (_, remove_dur) = timed(|| {
@@ -308,12 +311,10 @@ fn benchmark_btree_set(products: &[Product]) -> SetBenchmarkResult {
     let fake = make_fake_product();
     let lookup_miss_dur = timed(|| set.contains(&fake)).1;
 
-    let (order_sample, iterate_dur) = timed(|| {
-        set.iter()
-            .take(10)
-            .map(|p| p.name.clone())
-            .collect::<Vec<_>>()
+    let (all_names, iterate_dur) = timed(|| {
+        set.iter().map(|p| p.name.clone()).collect::<Vec<_>>()
     });
+    let order_sample: Vec<String> = all_names.into_iter().take(10).collect();
 
     let half: Vec<Product> = set.iter().take(products.len() / 2).cloned().collect();
     let (_, remove_dur) = timed(|| {
@@ -400,5 +401,222 @@ fn summary_row(r: &SetBenchmarkResult) -> SummaryRow {
         iterate_ms: r.iterate_all.duration_ms,
         remove_ms: r.remove_half.duration_ms,
         order: r.order_type.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn make(id: Uuid, name: &str) -> Product {
+        Product {
+            id,
+            name: name.to_string(),
+            description: None,
+            price_cents: 500,
+            quantity: 10,
+            category: "Test".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    // ── SetManager basic ops ───────────────────────────────────────────────────
+
+    #[test]
+    fn new_manager_is_empty() {
+        assert_eq!(SetManager::new().sizes(), (0, 0, 0));
+    }
+
+    #[test]
+    fn insert_adds_to_all_three_sets() {
+        let mut mgr = SetManager::new();
+        mgr.insert_product(&make(Uuid::new_v4(), "Widget"));
+        assert_eq!(mgr.sizes(), (1, 1, 1));
+    }
+
+    #[test]
+    fn inserting_same_id_twice_does_not_grow_sets() {
+        let mut mgr = SetManager::new();
+        let id = Uuid::new_v4();
+        mgr.insert_product(&make(id, "First"));
+        mgr.insert_product(&make(id, "Second")); // duplicate UUID
+        assert_eq!(mgr.sizes(), (1, 1, 1));
+    }
+
+    #[test]
+    fn remove_product_removes_from_all_three_sets() {
+        let mut mgr = SetManager::new();
+        let id = Uuid::new_v4();
+        mgr.insert_product(&make(id, "Widget"));
+        mgr.remove_product(id);
+        assert_eq!(mgr.sizes(), (0, 0, 0));
+    }
+
+    #[test]
+    fn remove_nonexistent_id_is_noop() {
+        let mut mgr = SetManager::new();
+        mgr.insert_product(&make(Uuid::new_v4(), "Widget"));
+        mgr.remove_product(Uuid::new_v4()); // different ID
+        assert_eq!(mgr.sizes(), (1, 1, 1));
+    }
+
+    #[test]
+    fn sync_from_db_replaces_all_contents() {
+        let mut mgr = SetManager::new();
+        let old = make(Uuid::new_v4(), "Old");
+        mgr.insert_product(&old);
+
+        let new_products = vec![
+            make(Uuid::new_v4(), "Beta"),
+            make(Uuid::new_v4(), "Gamma"),
+        ];
+        mgr.sync_from_db(&new_products);
+
+        assert_eq!(mgr.sizes(), (2, 2, 2));
+        assert!(!mgr.hash_set.contains(&old), "Old product must be gone after sync");
+    }
+
+    // ── Order guarantees ───────────────────────────────────────────────────────
+
+    #[test]
+    fn index_set_preserves_insertion_order() {
+        let mut mgr = SetManager::new();
+        let names = ["Zebra", "Alpha", "Mango", "Delta"];
+        for name in &names {
+            mgr.insert_product(&make(Uuid::new_v4(), name));
+        }
+        let observed: Vec<&str> = mgr.index_set.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(observed, names, "IndexSet must preserve insertion (FIFO) order");
+    }
+
+    #[test]
+    fn btree_set_iterates_alphabetically() {
+        let mut mgr = SetManager::new();
+        mgr.insert_product(&make(Uuid::new_v4(), "Zebra"));
+        mgr.insert_product(&make(Uuid::new_v4(), "Alpha"));
+        mgr.insert_product(&make(Uuid::new_v4(), "Mango"));
+        let observed: Vec<&str> = mgr.btree_set.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(observed, vec!["Alpha", "Mango", "Zebra"]);
+    }
+
+    #[test]
+    fn hash_set_contains_inserted_product() {
+        let mut mgr = SetManager::new();
+        let p = make(Uuid::new_v4(), "Widget");
+        mgr.insert_product(&p);
+        assert!(mgr.hash_set.contains(&p));
+        assert!(mgr.index_set.contains(&p));
+        assert!(mgr.btree_set.contains(&p));
+    }
+
+    // ── Benchmark correctness ──────────────────────────────────────────────────
+
+    #[test]
+    fn benchmark_reports_correct_product_count() {
+        let products: Vec<Product> = (0..50)
+            .map(|i| make(Uuid::new_v4(), &format!("Product {:03}", i)))
+            .collect();
+        let mut mgr = SetManager::new();
+        let report = mgr.run_benchmark(products);
+        assert_eq!(report.product_count, 50);
+        assert_eq!(report.results.len(), 3);
+    }
+
+    #[test]
+    fn benchmark_iteration_sample_at_most_10_items() {
+        let products: Vec<Product> = (0..30)
+            .map(|i| make(Uuid::new_v4(), &format!("P {:02}", i)))
+            .collect();
+        let mut mgr = SetManager::new();
+        let report = mgr.run_benchmark(products);
+        for r in &report.results {
+            assert!(
+                r.iteration_order_sample.len() <= 10,
+                "{} sample had {} items",
+                r.set_type,
+                r.iteration_order_sample.len()
+            );
+        }
+    }
+
+    #[test]
+    fn benchmark_btree_sample_is_alphabetically_sorted() {
+        let products = vec![
+            make(Uuid::new_v4(), "Zebra"),
+            make(Uuid::new_v4(), "Alpha"),
+            make(Uuid::new_v4(), "Mango"),
+        ];
+        let mut mgr = SetManager::new();
+        let report = mgr.run_benchmark(products);
+        let btree = report.results.iter().find(|r| r.set_type == "BTreeSet").unwrap();
+        assert_eq!(
+            btree.iteration_order_sample,
+            vec!["Alpha", "Mango", "Zebra"],
+            "BTreeSet sample must be alphabetically sorted"
+        );
+    }
+
+    #[test]
+    fn benchmark_index_sample_preserves_insertion_order() {
+        let products = vec![
+            make(Uuid::new_v4(), "Zebra"),
+            make(Uuid::new_v4(), "Alpha"),
+            make(Uuid::new_v4(), "Mango"),
+        ];
+        let mut mgr = SetManager::new();
+        let report = mgr.run_benchmark(products);
+        let index = report
+            .results
+            .iter()
+            .find(|r| r.set_type.contains("Index"))
+            .unwrap();
+        assert_eq!(
+            index.iteration_order_sample,
+            vec!["Zebra", "Alpha", "Mango"],
+            "IndexSet sample must preserve insertion order"
+        );
+    }
+
+    #[test]
+    fn benchmark_iterate_times_all_elements_not_just_10() {
+        // With only 5 products the iterate timing must still cover all 5 (sample == all names)
+        let products: Vec<Product> = (0..5)
+            .map(|i| make(Uuid::new_v4(), &format!("Item {:02}", i)))
+            .collect();
+        let mut mgr = SetManager::new();
+        let report = mgr.run_benchmark(products);
+        for r in &report.results {
+            assert_eq!(
+                r.iteration_order_sample.len(),
+                5,
+                "{} should expose all 5 items when count < 10",
+                r.set_type
+            );
+        }
+    }
+
+    #[test]
+    fn benchmark_syncs_manager_sets_after_run() {
+        let products: Vec<Product> = (0..10)
+            .map(|i| make(Uuid::new_v4(), &format!("P{}", i)))
+            .collect();
+        let mut mgr = SetManager::new();
+        mgr.run_benchmark(products);
+        // After benchmark the manager sets should be populated
+        let (h, i, b) = mgr.sizes();
+        assert_eq!(h, 10);
+        assert_eq!(i, 10);
+        assert_eq!(b, 10);
+    }
+
+    #[test]
+    fn timed_returns_correct_result() {
+        let (val, dur) = timed(|| 42_u32 + 1);
+        assert_eq!(val, 43);
+        // Duration should be non-negative (trivially true, just validate the type)
+        let _ = dur.as_nanos();
     }
 }

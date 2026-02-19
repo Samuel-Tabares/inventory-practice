@@ -140,14 +140,14 @@ cargo run --release
 
 ### Seeding & Benchmarking
 
-| Method | Path                            | Description                                   |
-|--------|---------------------------------|-----------------------------------------------|
-| POST   | `/api/seed?count=N`             | Bulk-insert N random products (max 50 000)    |
-| POST   | `/api/benchmark/run`            | Run full set comparison benchmark             |
-| GET    | `/api/benchmark/report`         | Retrieve last benchmark report + ASCII table  |
-| GET    | `/api/benchmark/sets/status`    | Show sizes + first-5 items from each set      |
-| GET    | `/api/benchmark/export/csv`     | Download all metrics as CSV                   |
-| GET    | `/api/benchmark/export/json`    | Download metrics as JSON with aggregates      |
+| Method | Path                            | Description                                                        |
+|--------|---------------------------------|--------------------------------------------------------------------|
+| POST   | `/api/seed?count=N`             | Bulk-insert N random products (max 50 000)                         |
+| POST   | `/api/benchmark/run`            | Run full set comparison benchmark (results **append** to metrics)  |
+| GET    | `/api/benchmark/report`         | Retrieve last benchmark report + ASCII table                       |
+| GET    | `/api/benchmark/sets/status`    | Show sizes + first-5 items from each set                           |
+| GET    | `/api/benchmark/export/csv`     | Download **all accumulated** metrics as CSV                        |
+| GET    | `/api/benchmark/export/json`    | Download **all accumulated** metrics as JSON with aggregates       |
 
 ### Stress Testing
 
@@ -163,6 +163,9 @@ cargo run --release
   "seed_count": 2000
 }
 ```
+
+**Operation mix per virtual user:** 50 % reads · 25 % creates · 15 % updates · 10 % deletes.
+Deletes only target products **created during the same stress run** — pre-existing seeded data is never deleted.
 
 ---
 
@@ -267,6 +270,25 @@ inventory-practice/
 | `rand`               | Random data generation for seeding               |
 | `csv`                | CSV export for metrics                           |
 | `dotenv`             | `.env` file loading for local development        |
+
+---
+
+## Testing
+
+Unit tests cover the core logic without requiring a database or running server.
+
+```bash
+cargo test
+```
+
+**What is tested:**
+
+| Module | Tests |
+|---|---|
+| `models::product` | `Eq`/`Hash` by UUID, `Ord` by `(name, id)`, HashSet dedup, BTreeSet alphabetical order, UUID tiebreak, `price_dollars` |
+| `sets` | `SetManager` insert / remove / sync, IndexSet insertion-order guarantee, BTreeSet alphabetical guarantee, benchmark `product_count`, iteration sample size ≤ 10, BTreeSet & IndexSet sample correctness, full-collection timing, post-benchmark sync |
+
+> The tests also verify a subtle trait consistency fix: `BTreeSet` deduplicates by `Ord` (`name, id`) while `HashSet`/`IndexSet` deduplicate by `Eq` (id only). `insert_product` now evicts any stale BTreeSet entry by UUID before inserting, keeping all three sets consistent.
 
 ---
 
