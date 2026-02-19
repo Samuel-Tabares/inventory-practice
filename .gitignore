@@ -1,0 +1,31 @@
+# ── Rust build artifacts ───────────────────────────────────────────
+backend/target/
+
+# ── Environment / secrets ──────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+frontend/.env
+
+# ── Generated runtime artifacts ────────────────────────────────────
+backend/reports/
+backend/metrics.csv
+
+# ── IDE ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+
+# ── macOS ──────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ── Claude Code session data ───────────────────────────────────────
+.claude/
+
+# ── Frontend tooling (if a bundler is ever added) ──────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.next/

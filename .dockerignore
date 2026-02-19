@@ -1,0 +1,35 @@
+# ── Rust build artifacts — biggest saving (~1 GB), never needed in image ──
+backend/target/
+
+# ── Git metadata ───────────────────────────────────────────────────
+.git/
+.gitignore
+.dockerignore
+
+# ── Environment / secrets — injected at runtime via docker-compose ──
+.env
+.env.local
+backend/.env
+backend/.env.local
+
+# ── Generated runtime artifacts ────────────────────────────────────
+backend/reports/
+backend/metrics.csv
+
+# ── IDE / editor ───────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+
+# ── macOS ──────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ── Claude Code session data ───────────────────────────────────────
+.claude/
+
+# ── Docs and scripts — not needed inside the image ─────────────────
+README.md
+backend/README.md
+frontend/README.md
+backend/scripts/
